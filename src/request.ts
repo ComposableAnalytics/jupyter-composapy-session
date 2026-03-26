@@ -138,20 +138,27 @@ export async function sendTokenRequest (
 		  'session = Session(auth_mode=AuthMode.TOKEN, credentials=token)',
 		  'session.register()'
 		].join('\n');
-
-		const message: KernelMessage.IShellMessage = await kernel.requestExecute({
-		  allow_stdin: false,
-		  code: runCode,
-		  silent: true,
-		  stop_on_error: true,
-		  store_history: false
-		}).done;
-
+		
+		let message: KernelMessage.IShellMessage;
+		
+		try {
+			message = await kernel.requestExecute({
+			  allow_stdin: false,
+			  code: runCode,
+			  silent: true,
+			  stop_on_error: true,
+			  store_history: false
+			}).done;
+		} catch {
+			sendRevokeRequest('disconnected', settings, kernel.id);
+			console.error('Error automatically registering Composapy session. No session was registered.')
+			continue;
+		}
 		const content: any = message.content;
 
 		if (content.status !== 'ok') {
 			// remove kernel from cache since no session was registered
-			kernelCache.delete(kernel.id);
+			sendRevokeRequest('disconnected', settings, kernel.id);
 			const msg: string = `Error automatically registering Composapy session:`;
 			console.error(msg, content);
 		} else {
@@ -159,20 +166,19 @@ export async function sendTokenRequest (
 			kernelCache.set(kernel.id, true);
 			sessionCon.connectionStatusChanged.connect(async (s: Session.ISessionConnection,
 			  k: Kernel.ConnectionStatus) => {
-				sendRevokeRequest(s, k, settings, kernel.id);
+				sendRevokeRequest(k, settings, kernel.id);
 			});
 		}
 	}
 }
 
 async function sendRevokeRequest (
-	session: Session.ISessionConnection,
 	status: Kernel.ConnectionStatus,
 	settings: ServerConnection.ISettings,
 	kernelId: string
   ): Promise<any> {
 	// only send revoke request on kernels that were added to the cache/had a session registered correctly
-	if (kernelCache.get(kernelId) && status === 'disconnected') {
+	if (kernelCache.has(kernelId) && status === 'disconnected') {
 		// send token revoke request to composable and remove kernel from cache
 		const init = {
 			method: 'PUT',
