@@ -100,6 +100,7 @@ export async function sendTokenRequest (
 		
 		// only want to run the code when it's a new kernel being launched (once)
 		if (kernelCache.has(kernel.id)) {
+			await disposeWhenReady(sessionCon);
 			continue;
 		} else {
 			kernelCache.set(kernel.id, false);
@@ -121,10 +122,10 @@ export async function sendTokenRequest (
 		} catch {
 			// remove kernel from cache since no session was registered
 			kernelCache.delete(kernel.id);
+			await disposeWhenReady(sessionCon);
 			continue;
 		}
 		
-		// base64 encoding for code injection
 		const bytes = new TextEncoder().encode(data.token);
 		let binary = '';
 		for (const b of bytes) binary += String.fromCharCode(b);
@@ -150,35 +151,32 @@ export async function sendTokenRequest (
 			  store_history: false
 			}).done;
 		} catch {
-			sendRevokeRequest('disconnected', settings, kernel.id);
-			console.error('Error automatically registering Composapy session. No session was registered.')
+			sendRevokeRequest(settings, kernel.id);
+			console.error('Error automatically registering Composapy session. No session was registered.');
+			await disposeWhenReady(sessionCon);
 			continue;
 		}
 		const content: any = message.content;
 
 		if (content.status !== 'ok') {
 			// remove kernel from cache since no session was registered
-			sendRevokeRequest('disconnected', settings, kernel.id);
+			sendRevokeRequest(settings, kernel.id);
 			const msg: string = `Error automatically registering Composapy session:`;
 			console.error(msg, content);
 		} else {
 			// token acquired; add kernel to cache and set listener
 			kernelCache.set(kernel.id, true);
-			sessionCon.connectionStatusChanged.connect(async (s: Session.ISessionConnection,
-			  k: Kernel.ConnectionStatus) => {
-				sendRevokeRequest(k, settings, kernel.id);
-			});
+			await disposeWhenReady(sessionCon);
 		}
 	}
 }
 
 async function sendRevokeRequest (
-	status: Kernel.ConnectionStatus,
 	settings: ServerConnection.ISettings,
 	kernelId: string
   ): Promise<any> {
 	// only send revoke request on kernels that were added to the cache/had a session registered correctly
-	if (kernelCache.has(kernelId) && status === 'disconnected') {
+	if (kernelCache.has(kernelId)) {
 		// send token revoke request to composable and remove kernel from cache
 		const init = {
 			method: 'PUT',
@@ -189,4 +187,28 @@ async function sendRevokeRequest (
 		await requestAPI<ITokenReply>('revoke', settings, init);
 		kernelCache.delete(kernelId);
 	}
+}
+
+// properly dispose of session connection that we used to check kernel status
+async function disposeWhenReady(session: Session.ISessionConnection) {
+  // if it's already 'connected', we can dispose immediately
+  if (!session.kernel || session.kernel.connectionStatus === 'connected') {
+    session.dispose();
+    return;
+  }
+
+  // otherwise, wait for the status to change
+  return new Promise<void>((resolve) => {
+    const onStatusChanged = (sender: Session.ISessionConnection,
+			  status: Kernel.ConnectionStatus) => {
+      // once it's no longer connecting (either it succeeded or failed permanently)
+      if (status === 'connected' || status === 'disconnected') {
+        session.connectionStatusChanged.disconnect(onStatusChanged);
+        session.dispose();
+        resolve();
+      }
+    };
+
+    session.connectionStatusChanged.connect(onStatusChanged);
+  });
 }

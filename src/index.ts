@@ -30,7 +30,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 	// run once in case this plugin activates after some sessions have started up
 	await sendTokenRequest(sessionManager, Array.from(sessionManager.running()), settings);
 	
-	// when there's a session change, request token generation or revocation
+	// when there's a session change, request token generation
     sessionManager.runningChanged.connect(async (sm: Session.IManager,
       sessions: Session.IModel[]) => {
 		await sendTokenRequest(sm, sessions, settings)
