@@ -6,7 +6,6 @@ import {
 
 import type {
   Kernel,
-  KernelMessage,
   Session
 } from '@jupyterlab/services';
 
@@ -63,9 +62,9 @@ async function requestAPI<T>(
   }
 
   if (!response.ok) {
-	const msg: string = `Error automatically registering Composapy session:`;
-	console.error(msg);
-    throw new ServerConnection.ResponseError(response, data.message || data);
+	const msg: string = `Error automatically registering Composapy session (session registration could not be executed).`;
+	console.error(msg, data.message);
+    throw new ServerConnection.ResponseError(response);
   }
 
   return data;
@@ -109,65 +108,25 @@ export async function sendTokenRequest (
 		
 		// make sure to pass the kernel id for generating the token
 		const init = {
-			method: 'GET',
+			method: 'PATCH',
 			headers: {
-				'Token': kernel.id
+				'Kernel': kernel.id
 			}
 		};
 			
-		// first, wait to get datalab token from server
-		let data;
+		// send it
 		try {
-			data = await requestAPI<ITokenReply>('generate', settings, init);
+			await requestAPI<ITokenReply>('token', settings, init);
 		} catch {
-			// remove kernel from cache since no session was registered
-			kernelCache.delete(kernel.id);
-			await disposeWhenReady(sessionCon);
-			continue;
-		}
-		
-		const bytes = new TextEncoder().encode(data.token);
-		let binary = '';
-		for (const b of bytes) binary += String.fromCharCode(b);
-		const tokenB64 = btoa(binary);
-		
-		const runCode = [
-		  'import base64',
-		  'from composapy.session import Session',
-		  'from composapy.auth import AuthMode',
-		  `token = base64.b64decode("${tokenB64}").decode("utf-8")`,
-		  'session = Session(auth_mode=AuthMode.TOKEN, credentials=token)',
-		  'session.register()'
-		].join('\n');
-		
-		let message: KernelMessage.IShellMessage;
-		
-		try {
-			message = await kernel.requestExecute({
-			  allow_stdin: false,
-			  code: runCode,
-			  silent: true,
-			  stop_on_error: true,
-			  store_history: false
-			}).done;
-		} catch {
+			// kernel isn't removed from cache to prevent excessive requests (only try to connect once)
 			sendRevokeRequest(settings, kernel.id);
-			console.error('Error automatically registering Composapy session. No session was registered.');
 			await disposeWhenReady(sessionCon);
 			continue;
 		}
-		const content: any = message.content;
 
-		if (content.status !== 'ok') {
-			// remove kernel from cache since no session was registered
-			sendRevokeRequest(settings, kernel.id);
-			const msg: string = `Error automatically registering Composapy session:`;
-			console.error(msg, content);
-		} else {
-			// token acquired; add kernel to cache and set listener
-			kernelCache.set(kernel.id, true);
-			await disposeWhenReady(sessionCon);
-		}
+		// token acquired; add kernel to cache and set listener
+		kernelCache.set(kernel.id, true);
+		await disposeWhenReady(sessionCon);
 	}
 }
 
@@ -179,13 +138,16 @@ async function sendRevokeRequest (
 	if (kernelCache.has(kernelId)) {
 		// send token revoke request to composable and remove kernel from cache
 		const init = {
-			method: 'PUT',
+			method: 'DELETE',
 			headers: {
-				'Token': kernelId
+				'Kernel': kernelId
 			}
 		};
-		await requestAPI<ITokenReply>('revoke', settings, init);
-		kernelCache.delete(kernelId);
+		try {
+			await requestAPI<ITokenReply>('token', settings, init);
+		} catch {
+			// probably installed outside Composable (delete is not implemented)
+		}
 	}
 }
 

@@ -1,32 +1,76 @@
 import json
+import queue
 
 from jupyter_server.base.handlers import APIHandler
 from jupyter_server.utils import url_path_join
+from tornado import web
 import tornado
 
 class TokenRequestHandler(APIHandler):
     
     
     @tornado.web.authenticated
-    def get(self):
-        raise tornado.web.HTTPError(418)
+    async def patch(self):
+        # Access the server's multi-kernel manager
+        km = self.kernel_manager
         
-        self.finish(json.dumps({
-            "error": "proxy_intercept_required",
-            "message": "No Composapy session was registered. Please install this extension inside a Composable DataLab.",
-        }))
+        try:
+            # Get kernel id from request
+            kernel_id = self.request.headers["Kernel"]
+            
+            # Get token string from request
+            token = self.request.headers["Token"]
+            
+            # Sanitize token string (only allow - . _ and alphanumerics)
+            if not token.replace("-","").replace("_","").replace(".","").isalnum():
+                raise ValueError("The provided token is invalid.")
+            
+            # Get kernel by id and execute code
+            kernel = km.get_kernel(kernel_id)
+            client = kernel.client()
+            client.start_channels()
+            
+            # Construct the code to execute
+            code = 'from composapy.session import Session;from composapy.auth import AuthMode;session = Session(auth_mode=AuthMode.TOKEN, credentials="' + token + '");session.register()'
 
-
-class TokenRevokeHandler(APIHandler):
-    
-    
+            # Execute the code
+            await client.execute(code, silent=True, store_history=False, allow_stdin=False, stop_on_error=True, reply=True)
+        
+            # Check the final reply message
+            reply = await client.get_iopub_msg(timeout=10)
+            
+            # Keep getting reply messages until we run out
+            try:
+                while reply['msg_type'] != 'execute_result' and reply['msg_type'] != 'error':
+                    reply = await client.get_iopub_msg(timeout=10)
+            except queue.Empty:
+                # this is expected; because silent=True we won't get a status response that it finished unless there's an error
+                self.set_status(200)
+                self.finish(json.dumps(
+                    reply['content']
+                ))
+                return
+            
+            # here we errored out
+            self.set_status(500)
+            self.finish(json.dumps({
+                "error": "session_error",
+                "message": reply['content']['traceback'],
+            }))
+        except (KeyError, ValueError):
+            self.set_status(401)
+            self.finish(json.dumps({
+                "error": "token_error",
+                "message": "Unusable token.",
+            }))
+        
+        
     @tornado.web.authenticated
-    def put(self):
-        raise tornado.web.HTTPError(418)
-        
+    def delete(self):
+        self.set_status(501)
         self.finish(json.dumps({
             "error": "proxy_intercept_required",
-            "message": "No Composapy session was registered. Please install this extension inside a Composable DataLab.",
+            "message": "Please install this extension inside a Composable DataLab.",
         }))
 
 
@@ -34,8 +78,7 @@ def setup_route_handlers(web_app):
     host_pattern = ".*$"
     base_url = web_app.settings["base_url"]
 
-    token_request_pattern = url_path_join(base_url, "composapy", "generate")
-    token_revoke_pattern = url_path_join(base_url, "composapy", "revoke")
-    handlers = [(token_request_pattern, TokenRequestHandler), (token_revoke_pattern, TokenRevokeHandler)]
+    token_request_pattern = url_path_join(base_url, "composapy", "token")
+    handlers = [(token_request_pattern, TokenRequestHandler)]
 
     web_app.add_handlers(host_pattern, handlers)

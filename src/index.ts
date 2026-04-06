@@ -33,7 +33,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
 	// when there's a session change, request token generation
     sessionManager.runningChanged.connect(async (sm: Session.IManager,
       sessions: Session.IModel[]) => {
-		await sendTokenRequest(sm, sessions, settings)
+		await sendTokenRequest(sm, sessions, settings);
+		
 	}, this);
   }
 };
