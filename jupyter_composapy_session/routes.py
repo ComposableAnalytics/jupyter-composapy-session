@@ -19,7 +19,7 @@ class TokenRequestHandler(APIHandler):
             kernel_id = self.request.headers["Kernel"]
             
             # Get token string from request
-            token = 'tbd' #self.request.headers["Token"]
+            token = self.request.headers["Token"]
             
             # Sanitize token string (only allow - . _ and alphanumerics)
             if not token.replace("-","").replace("_","").replace(".","").isalnum():
