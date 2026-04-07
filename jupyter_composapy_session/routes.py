@@ -19,7 +19,7 @@ class TokenRequestHandler(APIHandler):
             kernel_id = self.request.headers["Kernel"]
             
             # Get token string from request
-            token = self.request.headers["Token"]
+            token = 'tbd' #self.request.headers["Token"]
             
             # Sanitize token string (only allow - . _ and alphanumerics)
             if not token.replace("-","").replace("_","").replace(".","").isalnum():
@@ -29,10 +29,10 @@ class TokenRequestHandler(APIHandler):
             kernel = km.get_kernel(kernel_id)
             client = kernel.client()
             client.start_channels()
+            session = client.session.session  # use this to only view kernel messages from this connection
             
             # Construct the code to execute
             code = 'from composapy.session import Session;from composapy.auth import AuthMode;session = Session(auth_mode=AuthMode.TOKEN, credentials="' + token + '");session.register()'
-
             # Execute the code
             await client.execute(code, silent=True, store_history=False, allow_stdin=False, stop_on_error=True, reply=True)
         
@@ -41,7 +41,7 @@ class TokenRequestHandler(APIHandler):
             
             # Keep getting reply messages until we run out
             try:
-                while reply['msg_type'] != 'execute_result' and reply['msg_type'] != 'error':
+                while reply['msg_type'] != 'error' or reply['parent_header']['session'] != session:
                     reply = await client.get_iopub_msg(timeout=10)
             except queue.Empty:
                 # this is expected; because silent=True we won't get a status response that it finished unless there's an error
