@@ -30,7 +30,7 @@ class TokenRequestHandler(APIHandler):
             client = kernel.client()
             client.start_channels()
             session = client.session.session  # use this to only view kernel messages from this connection
-            
+
             # Construct the code to execute
             code = 'from composapy.session import Session;from composapy.auth import AuthMode;session = Session(auth_mode=AuthMode.TOKEN, credentials="' + token + '");session.register()'
             # Execute the code
@@ -38,25 +38,31 @@ class TokenRequestHandler(APIHandler):
         
             # Check the final reply message
             reply = await client.get_iopub_msg(timeout=10)
-            
-            # Keep getting reply messages until we run out
+
+            # Keep getting reply messages until we get to idle execution state on our own session
             try:
-                while reply['msg_type'] != 'error' or reply['parent_header']['session'] != session:
+                while not (reply['msg_type'] == 'error' and reply['parent_header']['session'] == session) and not ('execution_state' in reply['content'] and reply['content']['execution_state'] == 'idle' and reply['parent_header']['session'] == session):
                     reply = await client.get_iopub_msg(timeout=10)
-            except queue.Empty:
-                # this is expected; because silent=True we won't get a status response that it finished unless there's an error
+            except Exception as e:
+                self.set_status(500)
+                self.finish(json.dumps({
+                    "error": "session_error",
+                    "message": "Unexpected error executing session registration code.",
+                }))
+                return
+            if reply['msg_type'] == 'error':
+                # here we errored out
+                self.set_status(500)
+                self.finish(json.dumps({
+                    "error": "session_error",
+                    "message": reply['content']['traceback'],
+                }))
+            else:
+                # here we got a status: idle message
                 self.set_status(200)
                 self.finish(json.dumps(
                     reply['content']
                 ))
-                return
-            
-            # here we errored out
-            self.set_status(500)
-            self.finish(json.dumps({
-                "error": "session_error",
-                "message": reply['content']['traceback'],
-            }))
         except (KeyError, ValueError):
             self.set_status(401)
             self.finish(json.dumps({

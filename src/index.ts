@@ -34,7 +34,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
     sessionManager.runningChanged.connect(async (sm: Session.IManager,
       sessions: Session.IModel[]) => {
 		await sendTokenRequest(sm, sessions, settings);
-		
 	}, this);
   }
 };

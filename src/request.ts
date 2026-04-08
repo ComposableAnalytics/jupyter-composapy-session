@@ -94,6 +94,7 @@ export async function sendTokenRequest (
 		const kernel = sessionCon.kernel;
 		
 		if (!kernel) {
+			await disposeWhenReady(sessionCon);
 			continue;
 		}
 		
