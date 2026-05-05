@@ -1,16 +1,13 @@
 {
     "name": "jupyter-composapy-session",
-    "version": "0.1.0",
+    "version": "1.0.2",
     "description": "A JupyterLab extension for automatically registering a Composapy session when executing Notebooks within Composable.",
     "keywords": [
         "jupyter",
         "jupyterlab",
         "jupyterlab-extension"
     ],
-    "homepage": "",
-    "bugs": {
-        "url": "/issues"
-    },
+    "homepage": "https://github.com/ComposableAnalytics/jupyter-composapy-session",
     "license": "BSD-3-Clause",
     "author": {
         "name": "Composable Analytics",
@@ -26,7 +23,7 @@
     "style": "style/index.css",
     "repository": {
         "type": "git",
-        "url": ".git"
+        "url": "https://github.com/ComposableAnalytics/jupyter-composapy-session"
     },
     "scripts": {
         "build": "jlpm build:lib && jlpm build:labextension:dev",
